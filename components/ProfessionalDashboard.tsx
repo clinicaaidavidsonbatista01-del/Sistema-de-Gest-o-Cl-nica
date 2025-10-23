@@ -11,7 +11,7 @@ import {
     updateAppointment,
     deleteAppointment,
 } from '../services/dataService';
-import { CalendarIcon, UsersIcon, PlusIcon, PrintIcon, TrashIcon, PencilIcon, LogoutIcon, DownloadIcon, SearchIcon } from './icons';
+import { CalendarIcon, UsersIcon, PlusIcon, PrintIcon, TrashIcon, PencilIcon, LogoutIcon, DownloadIcon, SearchIcon, ArrowUpIcon, ArrowDownIcon } from './icons';
 import Modal from './Modal';
 import ConfirmationModal from './ConfirmationModal';
 
@@ -48,6 +48,16 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ professio
   
   const [appointmentSearchTerm, setAppointmentSearchTerm] = useState('');
   const [patientSearchTerm, setPatientSearchTerm] = useState('');
+  
+  // State for sorting and filtering
+  const [appointmentDateFilter, setAppointmentDateFilter] = useState({ start: '', end: '' });
+  const [appointmentSort, setAppointmentSort] = useState<{key: keyof Appointment | 'patientName', order: 'asc' | 'desc'}>({ key: 'time', order: 'asc' });
+  const [patientSort, setPatientSort] = useState<{key: keyof Patient, order: 'asc' | 'desc'}>({ key: 'name', order: 'asc' });
+
+  // State for filter panel visibility
+  const [isAppointmentFilterVisible, setIsAppointmentFilterVisible] = useState(false);
+  const [isPatientFilterVisible, setIsPatientFilterVisible] = useState(false);
+
 
   useEffect(() => {
     loadData();
@@ -158,19 +168,31 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ professio
   };
   
   const filteredAppointments = useMemo(() => {
-    if (!appointmentSearchTerm.trim()) {
-        return appointments;
-    }
-    const lowercasedTerm = appointmentSearchTerm.toLowerCase();
-    return appointments.filter(app => 
-        app.patientName.toLowerCase().includes(lowercasedTerm) ||
-        app.notes.toLowerCase().includes(lowercasedTerm)
-    );
-  }, [appointments, appointmentSearchTerm]);
+    return appointments.filter(app => {
+        const lowercasedTerm = appointmentSearchTerm.toLowerCase();
+        const matchesTerm = appointmentSearchTerm.trim() === '' || 
+            app.patientName.toLowerCase().includes(lowercasedTerm) ||
+            app.notes.toLowerCase().includes(lowercasedTerm);
 
-  const sortedAndFilteredAppointments = useMemo(() => 
-    [...filteredAppointments].sort((a, b) => a.time.localeCompare(b.time)),
-  [filteredAppointments]);
+        const matchesDate = 
+            (!appointmentDateFilter.start || app.date >= appointmentDateFilter.start) &&
+            (!appointmentDateFilter.end || app.date <= appointmentDateFilter.end);
+        
+        return matchesTerm && matchesDate;
+    });
+  }, [appointments, appointmentSearchTerm, appointmentDateFilter]);
+
+  const sortedAppointments = useMemo(() => 
+    [...filteredAppointments].sort((a, b) => {
+        const key = appointmentSort.key;
+        const valA = a[key] ?? '';
+        const valB = b[key] ?? '';
+
+        const comparison = String(valA).localeCompare(String(valB), 'pt-BR');
+
+        return appointmentSort.order === 'asc' ? comparison : -comparison;
+    }),
+  [filteredAppointments, appointmentSort]);
 
   const filteredPatients = useMemo(() => {
     if (!patientSearchTerm.trim()) {
@@ -179,6 +201,18 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ professio
     const lowercasedTerm = patientSearchTerm.toLowerCase();
     return patients.filter(p => p.name.toLowerCase().includes(lowercasedTerm));
   }, [patients, patientSearchTerm]);
+
+  const sortedPatients = useMemo(() => {
+    return [...filteredPatients].sort((a, b) => {
+        const key = patientSort.key;
+        const valA = a[key] ?? '';
+        const valB = b[key] ?? '';
+
+        const comparison = String(valA).localeCompare(String(valB), 'pt-BR', { sensitivity: 'base' });
+        
+        return patientSort.order === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredPatients, patientSort]);
 
   const allFilteredPatientsSelected = useMemo(() => {
     const filteredIds = new Set(filteredPatients.map(p => p.id));
@@ -196,15 +230,9 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ professio
     const newSelection = new Set(selectedPatientIds);
 
     if (allFilteredPatientsSelected) {
-        // Deselect all filtered
-        for (const id of filteredIds) {
-            newSelection.delete(id);
-        }
+        for (const id of filteredIds) { newSelection.delete(id); }
     } else {
-        // Select all filtered
-        for (const id of filteredIds) {
-            newSelection.add(id);
-        }
+        for (const id of filteredIds) { newSelection.add(id); }
     }
     setSelectedPatientIds(newSelection);
   };
@@ -224,28 +252,59 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ professio
     <div className="printable-content">
       <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
         <h2 className="text-2xl font-bold text-gray-800 shrink-0">Minha Agenda</h2>
-        <div className="w-full sm:w-auto flex flex-col sm:flex-row items-center gap-4">
-            <div className="relative w-full sm:w-64">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+        <div className="flex items-center gap-4 no-print">
+            <button onClick={() => setIsAppointmentFilterVisible(!isAppointmentFilterVisible)} className="flex items-center gap-2 text-gray-700 font-medium px-3 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition-colors">
+                Filtrar & Ordenar
+                <ArrowDownIcon className={`h-5 w-5 text-gray-600 transition-transform duration-200 ${isAppointmentFilterVisible ? 'rotate-180' : ''}`} />
+            </button>
+            <button onClick={() => handleOpenAppointmentModal()} className="flex-shrink-0 flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition-colors">
+                <PlusIcon className="h-5 w-5" /> Agendar
+            </button>
+        </div>
+      </div>
+       {isAppointmentFilterVisible && (
+        <div className="flex flex-col xl:flex-row items-end gap-4 mb-4 bg-gray-50 p-4 rounded-lg border no-print">
+            <div className="relative w-full sm:w-auto flex-grow xl:flex-grow-0">
+                 <label htmlFor="appointment-search" className="block text-sm font-medium text-gray-700 mb-1">Buscar</label>
+                <span className="absolute bottom-2.5 left-0 flex items-center pl-3">
                     <SearchIcon className="h-5 w-5 text-gray-400" />
                 </span>
                 <input
+                    id="appointment-search"
                     type="text"
-                    placeholder="Buscar por paciente ou nota..."
+                    placeholder="Paciente ou nota..."
                     value={appointmentSearchTerm}
                     onChange={e => setAppointmentSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
             </div>
-            <button onClick={() => handleOpenAppointmentModal()} className="w-full sm:w-auto flex-shrink-0 flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition-colors no-print">
-                <PlusIcon className="h-5 w-5" /> Agendar
-            </button>
+            <div className="flex-grow">
+                <label className="text-sm font-medium text-gray-700">Filtrar por data</label>
+                <div className="flex items-center gap-2 mt-1">
+                    <input type="date" aria-label="Data de início" value={appointmentDateFilter.start} onChange={e => setAppointmentDateFilter(f => ({...f, start: e.target.value}))} className="w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                    <span className="text-gray-500">até</span>
+                    <input type="date" aria-label="Data de fim" value={appointmentDateFilter.end} onChange={e => setAppointmentDateFilter(f => ({...f, end: e.target.value}))} className="w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                </div>
+            </div>
+            <div className="flex-grow">
+                <label htmlFor="appointment-sort" className="text-sm font-medium text-gray-700">Ordenar por</label>
+                <div className="flex items-center gap-2 mt-1">
+                    <select id="appointment-sort" value={appointmentSort.key} onChange={e => setAppointmentSort(s => ({...s, key: e.target.value as any}))} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="time">Hora</option>
+                        <option value="patientName">Nome do Paciente</option>
+                    </select>
+                    <button onClick={() => setAppointmentSort(s => ({...s, order: s.order === 'asc' ? 'desc' : 'asc'}))} className="p-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-100">
+                        {appointmentSort.order === 'asc' ? <ArrowUpIcon className="h-5 w-5 text-gray-600" /> : <ArrowDownIcon className="h-5 w-5 text-gray-600" />}
+                    </button>
+                </div>
+            </div>
+            <button onClick={() => { setAppointmentDateFilter({ start: '', end: '' }); setAppointmentSearchTerm(''); setAppointmentSort({key: 'time', order: 'asc'})}} className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm self-end h-[42px]">Limpar</button>
         </div>
-      </div>
+       )}
       <div className="bg-white p-6 rounded-lg shadow-md">
-        {sortedAndFilteredAppointments.length > 0 ? (
+        {sortedAppointments.length > 0 ? (
           <ul className="space-y-4">
-            {sortedAndFilteredAppointments.map(app => (
+            {sortedAppointments.map(app => (
               <li key={app.id} className="p-4 border rounded-md flex justify-between items-center bg-gray-50 hover:bg-gray-100">
                 <div className="flex-grow">
                   <div className="flex justify-between items-start">
@@ -268,7 +327,7 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ professio
             ))}
           </ul>
         ) : (
-          <p className="text-gray-500 text-center py-4">Nenhum agendamento encontrado.</p>
+          <p className="text-gray-500 text-center py-4">Nenhum agendamento encontrado para os filtros selecionados.</p>
         )}
       </div>
     </div>
@@ -278,26 +337,50 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ professio
      <div className="printable-content">
       <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
         <h2 className="text-2xl font-bold text-gray-800 shrink-0">Meus Pacientes</h2>
-        <div className="w-full sm:w-auto flex flex-col sm:flex-row items-center gap-4">
-            <div className="relative w-full sm:w-64">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-                    <SearchIcon className="h-5 w-5 text-gray-400" />
-                </span>
-                <input
-                    type="text"
-                    placeholder="Buscar por nome..."
-                    value={patientSearchTerm}
-                    onChange={e => setPatientSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-            </div>
-            <button onClick={() => handleOpenPatientModal()} className="w-full sm:w-auto flex-shrink-0 flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition-colors no-print">
+        <div className="flex items-center gap-4 no-print">
+            <button onClick={() => setIsPatientFilterVisible(!isPatientFilterVisible)} className="flex items-center gap-2 text-gray-700 font-medium px-3 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition-colors">
+                Filtrar & Ordenar
+                <ArrowDownIcon className={`h-5 w-5 text-gray-600 transition-transform duration-200 ${isPatientFilterVisible ? 'rotate-180' : ''}`} />
+            </button>
+            <button onClick={() => handleOpenPatientModal()} className="flex-shrink-0 flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition-colors">
                 <PlusIcon className="h-5 w-5" /> Adicionar
             </button>
         </div>
       </div>
+      {isPatientFilterVisible && (
+        <div className="flex flex-col sm:flex-row items-end gap-4 mb-4 bg-gray-50 p-4 rounded-lg border no-print">
+              <div className="relative w-full sm:w-64">
+                   <label htmlFor="patient-search" className="block text-sm font-medium text-gray-700 mb-1">Buscar por nome</label>
+                  <span className="absolute bottom-2.5 left-0 flex items-center pl-3">
+                      <SearchIcon className="h-5 w-5 text-gray-400" />
+                  </span>
+                  <input
+                      id="patient-search"
+                      type="text"
+                      placeholder="Buscar por nome..."
+                      value={patientSearchTerm}
+                      onChange={e => setPatientSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+              </div>
+              <div className="flex-grow">
+                  <label htmlFor="patient-sort" className="text-sm font-medium text-gray-700">Ordenar por</label>
+                  <div className="flex items-center gap-2 mt-1">
+                      <select id="patient-sort" value={patientSort.key} onChange={e => setPatientSort(s => ({...s, key: e.target.value as any}))} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                          <option value="name">Nome</option>
+                          <option value="email">Email</option>
+                          <option value="phone">Telefone</option>
+                      </select>
+                      <button onClick={() => setPatientSort(s => ({...s, order: s.order === 'asc' ? 'desc' : 'asc'}))} className="p-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-100">
+                          {patientSort.order === 'asc' ? <ArrowUpIcon className="h-5 w-5 text-gray-600" /> : <ArrowDownIcon className="h-5 w-5 text-gray-600" />}
+                      </button>
+                  </div>
+              </div>
+              <button onClick={() => { setPatientSearchTerm(''); setPatientSort({key: 'name', order: 'asc'})}} className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm self-end h-[42px]">Limpar</button>
+        </div>
+      )}
       <div className="bg-white p-6 rounded-lg shadow-md">
-         {filteredPatients.length > 0 && (
+         {sortedPatients.length > 0 && (
             <div className="p-2 border-b flex justify-between items-center bg-gray-50 rounded-t-md">
                 <div className="flex items-center">
                     <input 
@@ -309,7 +392,7 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ professio
                         aria-labelledby="select-all-label"
                     />
                     <label id="select-all-label" htmlFor="select-all-patients" className="ml-2 text-sm font-medium text-gray-700 cursor-pointer">
-                        {allFilteredPatientsSelected ? 'Desmarcar Todos' : 'Marcar Todos'}
+                        {allFilteredPatientsSelected ? 'Desmarcar Todos' : `Marcar ${filteredPatients.length} visíveis`}
                     </label>
                 </div>
                 {selectedPatientIds.size > 0 && (
@@ -323,8 +406,8 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ professio
             </div>
          )}
 
-         {filteredPatients.length > 0 ? (
-             filteredPatients.map(patient => (
+         {sortedPatients.length > 0 ? (
+             sortedPatients.map(patient => (
                 <div key={patient.id} className="p-4 border-b last:border-b-0 flex items-center hover:bg-gray-50">
                     <input 
                         type="checkbox"
